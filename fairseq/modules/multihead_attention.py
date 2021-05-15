@@ -166,6 +166,7 @@ class MultiheadAttention(nn.Module):
                 assert value is not None
                 assert src_len, bsz == value.shape[:2]
 
+
         # if (
         #     not self.onnx_trace
         #     and not is_tpu  # don't use PyTorch version on TPUs
@@ -342,7 +343,9 @@ class MultiheadAttention(nn.Module):
         attn_weights = self.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
+
         args= {'choose': 'norm_attn'}
+
         if encode == True:
             args['choose'] = 'NN'
         if args['choose'] == 'norm_attn' or args['choose'] == 'NADM':
