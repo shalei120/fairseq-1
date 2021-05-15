@@ -470,6 +470,7 @@ class TranslationTask(FairseqTask):
 
         gen_out = self.inference_step(generator, [model], sample, prefix_tokens=None)
         hyps, refs = [], []
+        # print([len(g) for g in gen_out])
         for i in range(len(gen_out)):
             hyps.append(decode(gen_out[i][0]["tokens"]))
             refs.append(
