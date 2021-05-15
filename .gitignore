@@ -1,3 +1,4 @@
+tfde-en.txt
 # JetBrains PyCharm IDE
 .idea/
 
@@ -114,7 +115,8 @@ ENV/
 /fairseq/modules/*_layer/*_forward.cu
 /fairseq/modules/*_layer/*_backward.cu
 /fairseq/version.py
-
+/examples/translation/wmt17_en_de
+/examples/translation/orig
 # data
 data-bin/
 
