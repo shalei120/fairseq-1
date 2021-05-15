@@ -585,7 +585,7 @@ class Trainer(object):
         """Return an EpochBatchIterator over given validation subset for a given epoch."""
         batch_iterator = self.task.get_batch_iterator(
             dataset=self.task.dataset(subset),
-            max_tokens=self.cfg.dataset.max_tokens_valid,
+            max_tokens=self.cfg.dataset.max_tokens_valid/2,
             max_sentences=self.cfg.dataset.batch_size_valid,
             max_positions=utils.resolve_max_positions(
                 self.task.max_positions(),

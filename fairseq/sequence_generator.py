@@ -427,6 +427,8 @@ class SequenceGenerator(nn.Module):
                 )
                 num_remaining_sent -= len(finalized_sents)
 
+            self.search.stop_on_max_len = True
+
             assert num_remaining_sent >= 0
             if num_remaining_sent == 0:
                 break

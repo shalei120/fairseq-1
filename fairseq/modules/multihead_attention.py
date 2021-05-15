@@ -14,7 +14,15 @@ from fairseq.modules.fairseq_dropout import FairseqDropout
 from fairseq.modules.quant_noise import quant_noise
 from torch import Tensor, nn
 from torch.nn import Parameter
+# from fairseq.modules.F_multihead_attention import multi_head_attention_forward
 
+
+def generate_square_subsequent_mask(self, sz):
+    # mask = torch.logical_not(torch.triu(torch.ones(sz, sz)) == 1)
+    # mask[0, 0] = True
+    mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+    # mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+    return mask
 
 @with_incremental_state
 class MultiheadAttention(nn.Module):
@@ -168,29 +176,30 @@ class MultiheadAttention(nn.Module):
         #     and not torch.jit.is_scripting()
         # ):
         #     assert key is not None and value is not None
-        #     return F.multi_head_attention_forward(
-        #         query,
-        #         key,
-        #         value,
-        #         self.embed_dim,
-        #         self.num_heads,
-        #         torch.empty([0]),
-        #         torch.cat((self.q_proj.bias, self.k_proj.bias, self.v_proj.bias)),
-        #         self.bias_k,
-        #         self.bias_v,
-        #         self.add_zero_attn,
-        #         self.dropout_module.p,
-        #         self.out_proj.weight,
-        #         self.out_proj.bias,
-        #         self.training or self.dropout_module.apply_during_inference,
-        #         key_padding_mask,
-        #         need_weights,
-        #         attn_mask,
-        #         use_separate_proj_weight=True,
-        #         q_proj_weight=self.q_proj.weight,
-        #         k_proj_weight=self.k_proj.weight,
-        #         v_proj_weight=self.v_proj.weight,
-        #     )
+        # return multi_head_attention_forward(
+        #     query,
+        #     key,
+        #     value,
+        #     self.embed_dim,
+        #     self.num_heads,
+        #     torch.empty([0]),
+        #     torch.cat((self.q_proj.bias, self.k_proj.bias, self.v_proj.bias)),
+        #     self.bias_k,
+        #     self.bias_v,
+        #     self.add_zero_attn,
+        #     self.dropout_module.p,
+        #     self.out_proj.weight,
+        #     self.out_proj.bias,
+        #     self.training or self.dropout_module.apply_during_inference,
+        #     key_padding_mask,
+        #     need_weights,
+        #     attn_mask,
+        #     use_separate_proj_weight=True,
+        #     q_proj_weight=self.q_proj.weight,
+        #     k_proj_weight=self.k_proj.weight,
+        #     v_proj_weight=self.v_proj.weight,
+        #     encode = encode,
+        # )
 
         if incremental_state is not None:
             saved_state = self._get_input_buffer(incremental_state)
@@ -329,27 +338,50 @@ class MultiheadAttention(nn.Module):
                     ],
                     dim=1,
                 )
-
         attn_weights = torch.bmm(q, k.transpose(1, 2))
         attn_weights = self.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
-        args= {'choose': 'Diagmask'}
+        args= {'choose': 'norm_attn'}
         if encode == True:
             args['choose'] = 'NN'
         if args['choose'] == 'norm_attn' or args['choose'] == 'NADM':
-            attn_weights = F.layer_norm(attn_weights, (attn_weights.size()[-1],))
+            # print(args['choose'] )
+            mask = (torch.triu(torch.ones(src_len, src_len)) == 1).transpose(0, 1).to('cuda:0')
+
+            if incremental_state is not None:
+                attn_mu = attn_weights.mean(2, keepdim=True)
+                assert attn_weights.size()[2] == src_len
+                attn_sigma = ((attn_weights - attn_mu) ) **2
+                attn_sigma =torch.sqrt(attn_sigma.sum(2, keepdim=True))
+                attn_weights = (attn_weights - attn_mu) / attn_sigma
+
+            else:
+                attn_weights =  attn_weights * mask.unsqueeze(0)
+                attn_mu = attn_weights.sum(2, keepdim=True) /mask.sum(1, keepdim=True).unsqueeze(0)
+                attn_sigma = ((attn_weights - attn_mu) * mask.unsqueeze(0)) **2
+                attn_sigma =torch.sqrt(attn_sigma.sum(2, keepdim=True))
+                attn_weights = (attn_weights - attn_mu) / attn_sigma
+
 
         if args['choose'] == 'BET':
             # attn_output_weights = F.layer_norm(attn_output_weights,(attn_output_weights.size()[-1],))
             attn_output_weights_beta = attn_weights.clone()
 
         if args['choose']=='Diagmask' or args['choose'] == 'NADM':
-            I = torch.eye(tgt_len).to('cuda:0')
-            I[0,0] = 0
-            I = I.masked_fill_(I==1, float("-inf"))
-            # print(attn_weights.size(),I.size(), query.size(), encode)
-            attn_weights += I
+            if incremental_state is not None:
+                I = torch.eye(src_len).to('cuda:0')
+                I[0,0] = 0
+                I = I.masked_fill_(I==1, float("-inf"))
+                add_I = I[-1,:].unsqueeze(0) # 1 src_len
+                attn_weights += add_I.unsqueeze(0)
+
+            else:
+                I = torch.eye(tgt_len).to('cuda:0')
+                I[0,0] = 0
+                I = I.masked_fill_(I==1, float("-inf"))
+                # print(attn_weights.size(),I.size(), query.size(), encode)
+                attn_weights += I
 
         if attn_mask is not None:
             attn_mask = attn_mask.unsqueeze(0)
