@@ -45,12 +45,14 @@ class MultiheadAttention(nn.Module):
         encoder_decoder_attention=False,
         q_noise=0.0,
         qn_block_size=8,
+        choose = 'None',
     ):
         super().__init__()
         self.embed_dim = embed_dim
         self.kdim = kdim if kdim is not None else embed_dim
         self.vdim = vdim if vdim is not None else embed_dim
         self.qkv_same_dim = self.kdim == embed_dim and self.vdim == embed_dim
+        self.choose = choose
 
         self.num_heads = num_heads
         self.dropout_module = FairseqDropout(
@@ -165,6 +167,7 @@ class MultiheadAttention(nn.Module):
                 assert key_bsz == bsz
                 assert value is not None
                 assert src_len, bsz == value.shape[:2]
+
 
         # if (
         #     not self.onnx_trace
@@ -342,48 +345,49 @@ class MultiheadAttention(nn.Module):
         attn_weights = self.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
-        args= {'choose': 'norm_attn'}
-        if encode == True:
-            args['choose'] = 'NN'
-        if args['choose'] == 'norm_attn' or args['choose'] == 'NADM':
-            # print(args['choose'] )
-            mask = (torch.triu(torch.ones(src_len, src_len)) == 1).transpose(0, 1).to('cuda:0')
+        
+        model_choice, encdec = self.choose.split('-')
+        
 
-            if incremental_state is not None:
-                attn_mu = attn_weights.mean(2, keepdim=True)
-                assert attn_weights.size()[2] == src_len
-                attn_sigma = ((attn_weights - attn_mu) ) **2
-                attn_sigma =torch.sqrt(attn_sigma.sum(2, keepdim=True)+1e-6)
-                attn_weights = (attn_weights - attn_mu) / (attn_sigma+1e-6)
+        conduct = (encode == False and 'dec' in encdec) or (encode == True and src_len == tgt_len and 'enc' in encdec)
+        if conduct:
+            if model_choice == 'norm_attn' or model_choice == 'NADM':
+                # print(args['choose'] )
+                mask = (torch.triu(torch.ones(src_len, src_len)) == 1).transpose(0, 1)#.to('cuda:0')
 
-            else:
-                attn_weights =  attn_weights * mask.unsqueeze(0)
-                attn_mu = attn_weights.sum(2, keepdim=True) /(mask.sum(1, keepdim=True).unsqueeze(0)+1e-6)
-                attn_sigma = ((attn_weights - attn_mu) * mask.unsqueeze(0))**2
-                attn_sigma =torch.sqrt(attn_sigma.sum(2, keepdim=True)+1e-6)
-                attn_weights = (attn_weights - attn_mu) / (attn_sigma+1e-6)
+                if incremental_state is not None:
+                    attn_mu = attn_weights.mean(2, keepdim=True)
+                    assert attn_weights.size()[2] == src_len
+                    attn_sigma = ((attn_weights - attn_mu) ) **2
+                    attn_sigma =torch.sqrt(attn_sigma.sum(2, keepdim=True)+1e-6)
+                    attn_weights = (attn_weights - attn_mu) / (attn_sigma+1e-6)
 
-            attn_weights = F.linear(attn_weights)
+                else:
+                    attn_weights =  attn_weights * mask.unsqueeze(0)
+                    attn_mu = attn_weights.sum(2, keepdim=True) /(mask.sum(1, keepdim=True).unsqueeze(0)+1e-6)
+                    attn_sigma = ((attn_weights - attn_mu) * mask.unsqueeze(0)) **2
+                    attn_sigma =torch.sqrt(attn_sigma.sum(2, keepdim=True)+1e-6)
+                    attn_weights = (attn_weights - attn_mu) / (attn_sigma+1e-6)
 
 
-        if args['choose'] == 'BET':
-            # attn_output_weights = F.layer_norm(attn_output_weights,(attn_output_weights.size()[-1],))
-            attn_output_weights_beta = attn_weights.clone()
+            if model_choice == 'BET':
+                # attn_output_weights = F.layer_norm(attn_output_weights,(attn_output_weights.size()[-1],))
+                attn_output_weights_beta = attn_weights.clone()
 
-        if args['choose']=='Diagmask' or args['choose'] == 'NADM':
-            if incremental_state is not None:
-                I = torch.eye(src_len).to('cuda:0')
-                I[0,0] = 0
-                I = I.masked_fill_(I==1, float("-inf"))
-                add_I = I[-1,:].unsqueeze(0) # 1 src_len
-                attn_weights += add_I.unsqueeze(0)
+            if model_choice=='Diagmask' or model_choice == 'NADM':
+                if incremental_state is not None:
+                    I = torch.eye(src_len).to('cuda:0')
+                    I[0,0] = 0
+                    I = I.masked_fill_(I==1, float("-inf"))
+                    add_I = I[-1,:].unsqueeze(0) # 1 src_len
+                    attn_weights += add_I.unsqueeze(0)
 
-            else:
-                I = torch.eye(tgt_len).to('cuda:0')
-                I[0,0] = 0
-                I = I.masked_fill_(I==1, float("-inf"))
-                # print(attn_weights.size(),I.size(), query.size(), encode)
-                attn_weights += I
+                else:
+                    I = torch.eye(tgt_len).to('cuda:0')
+                    I[0,0] = 0
+                    I = I.masked_fill_(I==1, float("-inf"))
+                    # print(attn_weights.size(),I.size(), query.size(), encode)
+                    attn_weights += I
 
         if attn_mask is not None:
             attn_mask = attn_mask.unsqueeze(0)
@@ -427,35 +431,36 @@ class MultiheadAttention(nn.Module):
         attn = self.out_proj(attn)
         attn_weights: Optional[Tensor] = None
 
-        if  args['choose'] == 'BET':
-            attn_output = attn
-            cat = torch.cat([q, attn_output.transpose(0,1)], dim = 2) # N S 2E
-            high = self.f(cat).squeeze() # N S (1)
-            fixed_weight = attn_output_weights_beta * high.unsqueeze(1)
-            # print(fixed_weight)
+        if conduct:
+            if self.choose == 'BET':
+                attn_output = attn
+                cat = torch.cat([q, attn_output.transpose(0,1)], dim = 2) # N S 2E
+                high = self.f(cat).squeeze() # N S (1)
+                fixed_weight = attn_output_weights_beta * high.unsqueeze(1)
+                # print(fixed_weight)
 
-            fixed_weight = F.layer_norm(fixed_weight,(fixed_weight.size()[-1],))
-            if attn_mask is not None:
-                if attn_mask.dtype == torch.bool:
-                    fixed_weight.masked_fill_(attn_mask, float("-inf"))
-                else:
-                    fixed_weight += attn_mask
+                fixed_weight = F.layer_norm(fixed_weight,(fixed_weight.size()[-1],))
+                if attn_mask is not None:
+                    if attn_mask.dtype == torch.bool:
+                        fixed_weight.masked_fill_(attn_mask, float("-inf"))
+                    else:
+                        fixed_weight += attn_mask
 
-            I = torch.eye(tgt_len).to('cuda:0')
-            I[0,0] = 0
-            I = I.masked_fill_(I==1, float("-inf"))
-            fixed_weight += I
-            # print(fixed_weight)
-            fixed_weight = F.softmax(fixed_weight, dim=-1)
-            fixed_weight = F.dropout(fixed_weight, p=dropout_p, training=training)
+                I = torch.eye(tgt_len).to('cuda:0')
+                I[0,0] = 0
+                I = I.masked_fill_(I==1, float("-inf"))
+                fixed_weight += I
+                # print(fixed_weight)
+                fixed_weight = F.softmax(fixed_weight, dim=-1)
+                fixed_weight = F.dropout(fixed_weight, p=dropout_p, training=training)
 
-            attn_output = torch.bmm(fixed_weight, v)
-            assert list(attn_output.size()) == [bsz * num_heads, tgt_len, head_dim]
-            attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
-            attn_output = self.out_proj2(attn_output)
-            attn_output_weights = fixed_weight
-            attn = attn_output
-            attn_weights = attn_output_weights
+                attn_output = torch.bmm(fixed_weight, v)
+                assert list(attn_output.size()) == [bsz * num_heads, tgt_len, head_dim]
+                attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
+                attn_output = self.out_proj2(attn_output)
+                attn_output_weights = fixed_weight
+                attn = attn_output
+                attn_weights = attn_output_weights
 
 
         if need_weights:

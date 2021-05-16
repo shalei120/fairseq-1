@@ -84,6 +84,7 @@ class TransformerEncoderLayer(nn.Module):
             self_attention=True,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
+            choose = args.choose,
         )
 
     def residual_connection(self, x, residual):
