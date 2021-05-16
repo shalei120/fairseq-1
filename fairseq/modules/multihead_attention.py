@@ -345,8 +345,9 @@ class MultiheadAttention(nn.Module):
         attn_weights = self.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
-
+        
         model_choice, encdec = self.choose.split('-')
+        
 
         conduct = (encode == False and 'dec' in encdec) or (encode == True and src_len == tgt_len and 'enc' in encdec)
         if conduct:
