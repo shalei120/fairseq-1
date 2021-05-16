@@ -115,6 +115,7 @@ def parse_args_and_arch(
     # in order to eagerly import custom tasks, optimizers, architectures, etc.
     usr_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     usr_parser.add_argument("--user-dir", default=None)
+    usr_parser.add_argument("--choose", default=None)
     usr_args, _ = usr_parser.parse_known_args(input_args)
     utils.import_user_module(usr_args)
 
