@@ -353,15 +353,17 @@ class MultiheadAttention(nn.Module):
                 attn_mu = attn_weights.mean(2, keepdim=True)
                 assert attn_weights.size()[2] == src_len
                 attn_sigma = ((attn_weights - attn_mu) ) **2
-                attn_sigma =torch.sqrt(attn_sigma.sum(2, keepdim=True))
-                attn_weights = (attn_weights - attn_mu) / attn_sigma
+                attn_sigma =torch.sqrt(attn_sigma.sum(2, keepdim=True)+1e-6)
+                attn_weights = (attn_weights - attn_mu) / (attn_sigma+1e-6)
 
             else:
                 attn_weights =  attn_weights * mask.unsqueeze(0)
-                attn_mu = attn_weights.sum(2, keepdim=True) /mask.sum(1, keepdim=True).unsqueeze(0)
-                attn_sigma = ((attn_weights - attn_mu) * mask.unsqueeze(0)) **2
-                attn_sigma =torch.sqrt(attn_sigma.sum(2, keepdim=True))
-                attn_weights = (attn_weights - attn_mu) / attn_sigma
+                attn_mu = attn_weights.sum(2, keepdim=True) /(mask.sum(1, keepdim=True).unsqueeze(0)+1e-6)
+                attn_sigma = ((attn_weights - attn_mu) * mask.unsqueeze(0))**2
+                attn_sigma =torch.sqrt(attn_sigma.sum(2, keepdim=True)+1e-6)
+                attn_weights = (attn_weights - attn_mu) / (attn_sigma+1e-6)
+
+            attn_weights = F.linear(attn_weights)
 
 
         if args['choose'] == 'BET':
