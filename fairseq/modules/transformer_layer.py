@@ -257,6 +257,7 @@ class TransformerDecoderLayer(nn.Module):
             self_attention=not getattr(args, "cross_self_attention", False),
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
+            choose = args.choose,
         )
 
     def build_encoder_attention(self, embed_dim, args):
@@ -269,6 +270,7 @@ class TransformerDecoderLayer(nn.Module):
             encoder_decoder_attention=True,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
+            choose = args.choose,
         )
 
     def prepare_for_onnx_export_(self):

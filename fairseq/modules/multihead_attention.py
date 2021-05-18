@@ -97,6 +97,10 @@ class MultiheadAttention(nn.Module):
         self.reset_parameters()
 
         self.onnx_trace = False
+        self.f = nn.Sequential(
+            nn.Linear(self.head_dim*2, 1, bias=True),
+            nn.Sigmoid()
+        )
 
     def prepare_for_onnx_export_(self):
         self.onnx_trace = True
@@ -345,7 +349,7 @@ class MultiheadAttention(nn.Module):
         attn_weights = self.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
-        
+        # print(self.choose)
         model_choice, encdec = self.choose.split('-')
         
 
@@ -432,8 +436,9 @@ class MultiheadAttention(nn.Module):
         attn_weights: Optional[Tensor] = None
 
         if conduct:
-            if self.choose == 'BET':
-                attn_output = attn
+            if model_choice == 'BET':
+                attn_output = attn.contiguous().view(tgt_len, bsz*self.num_heads, self.head_dim)
+                # print(q.size(),attn_output.size())
                 cat = torch.cat([q, attn_output.transpose(0,1)], dim = 2) # N S 2E
                 high = self.f(cat).squeeze() # N S (1)
                 fixed_weight = attn_output_weights_beta * high.unsqueeze(1)
