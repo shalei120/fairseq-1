@@ -345,7 +345,7 @@ class MultiheadAttention(nn.Module):
         attn_weights = self.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
-        
+        # print(self.choose)
         model_choice, encdec = self.choose.split('-')
         
 
@@ -353,7 +353,7 @@ class MultiheadAttention(nn.Module):
         if conduct:
             if model_choice == 'norm_attn' or model_choice == 'NADM':
                 # print(args['choose'] )
-                mask = (torch.triu(torch.ones(src_len, src_len)) == 1).transpose(0, 1)#.to('cuda:0')
+                mask = (torch.triu(torch.ones(src_len, src_len)) == 1).transpose(0, 1).to('cuda:0')
 
                 if incremental_state is not None:
                     attn_mu = attn_weights.mean(2, keepdim=True)
@@ -432,24 +432,34 @@ class MultiheadAttention(nn.Module):
         attn_weights: Optional[Tensor] = None
 
         if conduct:
-            if self.choose == 'BET':
+            if model_choice == 'BET':
                 attn_output = attn
+                print(q.size(),attn_output.size())
                 cat = torch.cat([q, attn_output.transpose(0,1)], dim = 2) # N S 2E
                 high = self.f(cat).squeeze() # N S (1)
                 fixed_weight = attn_output_weights_beta * high.unsqueeze(1)
                 # print(fixed_weight)
 
-                fixed_weight = F.layer_norm(fixed_weight,(fixed_weight.size()[-1],))
+                # fixed_weight = F.layer_norm(fixed_weight,(fixed_weight.size()[-1],))
                 if attn_mask is not None:
                     if attn_mask.dtype == torch.bool:
                         fixed_weight.masked_fill_(attn_mask, float("-inf"))
                     else:
                         fixed_weight += attn_mask
+                if '=dm' not in encdec:
+                    if incremental_state is not None:
+                        I = torch.eye(src_len).to('cuda:0')
+                        I[0, 0] = 0
+                        I = I.masked_fill_(I == 1, float("-inf"))
+                        add_I = I[-1, :].unsqueeze(0)  # 1 src_len
+                        fixed_weight += add_I.unsqueeze(0)
 
-                I = torch.eye(tgt_len).to('cuda:0')
-                I[0,0] = 0
-                I = I.masked_fill_(I==1, float("-inf"))
-                fixed_weight += I
+                    else:
+                        I = torch.eye(tgt_len).to('cuda:0')
+                        I[0, 0] = 0
+                        I = I.masked_fill_(I == 1, float("-inf"))
+                        # print(attn_weights.size(),I.size(), query.size(), encode)
+                        fixed_weight += I
                 # print(fixed_weight)
                 fixed_weight = F.softmax(fixed_weight, dim=-1)
                 fixed_weight = F.dropout(fixed_weight, p=dropout_p, training=training)
