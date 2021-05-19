@@ -475,7 +475,7 @@ class MultiheadAttention(nn.Module):
                         fixed_weight += add_I.unsqueeze(0)
 
                     else:
-                        I = torch.eye(tgt_len).to('cuda:0')
+                        I = torch.eye(tgt_len)#.to('cuda:0')
                         I[0, 0] = 0
                         I = I.masked_fill_(I == 1, float("-inf"))
                         # print(attn_weights.size(),I.size(), query.size(), encode)
