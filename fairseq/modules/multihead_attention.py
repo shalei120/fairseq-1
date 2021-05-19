@@ -100,8 +100,11 @@ class MultiheadAttention(nn.Module):
         self.reset_parameters()
 
         self.onnx_trace = False
+
         self.f = nn.Sequential(
-            nn.Linear(self.head_dim*2, 1, bias=True),
+            nn.Linear(self.head_dim * 2, 1, bias=True),
+            # nn.Tanh(),
+            # nn.Linear(100, 1, bias=True),
             nn.Sigmoid()
         )
 
@@ -316,7 +319,7 @@ class MultiheadAttention(nn.Module):
             saved_state["prev_key_padding_mask"] = key_padding_mask
             # In this branch incremental_state is never None
             assert incremental_state is not None
-            incremental_state = self._set_input_buffer(incremental_state, saved_state)
+            # incremental_state = self._set_input_buffer(incremental_state, saved_state)
         assert k is not None
         assert k.size(1) == src_len
 
@@ -442,8 +445,18 @@ class MultiheadAttention(nn.Module):
             if model_choice == 'BET':
                 attn_output = attn.contiguous().view(tgt_len, bsz*self.num_heads, self.head_dim)
                 # print(q.size(),attn_output.size())
-                cat = torch.cat([q, attn_output.transpose(0,1)], dim = 2) # N S 2E
+                if incremental_state is not None and saved_state is not None:
+                    if "prev_attn_output" in saved_state:
+                        _prev_ato = saved_state["prev_attn_output"]
+                        assert _prev_ato is not None
+                        prev_ato = _prev_ato.view(-1, bsz*self.num_heads, self.head_dim)
+                        attn_output = torch.cat([prev_ato, attn_output], dim=0)
+                        saved_state["prev_attn_output"] = attn_output
+                        incremental_state = self._set_input_buffer(incremental_state, saved_state)
+
+                cat = torch.cat([k, attn_output.transpose(0,1)], dim = 2) # N S 2E
                 high = self.f(cat).squeeze(2) # N S (1)
+
                 fixed_weight = attn_output_weights_beta * high.unsqueeze(1)
                 # print(fixed_weight)
 
