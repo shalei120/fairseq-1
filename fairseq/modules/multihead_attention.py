@@ -449,10 +449,10 @@ class MultiheadAttention(nn.Module):
                     if "prev_attn_output" in saved_state:
                         _prev_ato = saved_state["prev_attn_output"]
                         assert _prev_ato is not None
-                        prev_ato = _prev_ato.view(-1, bsz*self.num_heads, self.head_dim)
+                        prev_ato = _prev_ato.transpose(0,1)
                         attn_output = torch.cat([prev_ato, attn_output], dim=0)
-                        saved_state["prev_attn_output"] = attn_output
-                        incremental_state = self._set_input_buffer(incremental_state, saved_state)
+                    saved_state["prev_attn_output"] = attn_output.transpose(0,1)
+                    incremental_state = self._set_input_buffer(incremental_state, saved_state)
 
                 cat = torch.cat([k, attn_output.transpose(0,1)], dim = 2) # N S 2E
                 high = self.f(cat).squeeze(2) # N S (1)
@@ -468,7 +468,7 @@ class MultiheadAttention(nn.Module):
                         fixed_weight += attn_mask
                 if '=dm' not in encdec:
                     if incremental_state is not None:
-                        I = torch.eye(src_len).to('cuda:0')
+                        I = torch.eye(src_len)#.to('cuda:0')
                         I[0, 0] = 0
                         I = I.masked_fill_(I == 1, float("-inf"))
                         add_I = I[-1, :].unsqueeze(0)  # 1 src_len
