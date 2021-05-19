@@ -85,6 +85,9 @@ class MultiheadAttention(nn.Module):
         self.out_proj = quant_noise(
             nn.Linear(embed_dim, embed_dim, bias=bias), q_noise, qn_block_size
         )
+        self.out_proj2 = quant_noise(
+            nn.Linear(embed_dim, embed_dim, bias=bias), q_noise, qn_block_size
+        )
 
         if add_bias_kv:
             self.bias_k = Parameter(torch.Tensor(1, 1, embed_dim))
@@ -97,8 +100,11 @@ class MultiheadAttention(nn.Module):
         self.reset_parameters()
 
         self.onnx_trace = False
+
         self.f = nn.Sequential(
-            nn.Linear(self.head_dim*2, 1, bias=True),
+            nn.Linear(self.head_dim * 2, 1, bias=True),
+            # nn.Tanh(),
+            # nn.Linear(100, 1, bias=True),
             nn.Sigmoid()
         )
 
@@ -313,7 +319,7 @@ class MultiheadAttention(nn.Module):
             saved_state["prev_key_padding_mask"] = key_padding_mask
             # In this branch incremental_state is never None
             assert incremental_state is not None
-            incremental_state = self._set_input_buffer(incremental_state, saved_state)
+            # incremental_state = self._set_input_buffer(incremental_state, saved_state)
         assert k is not None
         assert k.size(1) == src_len
 
@@ -439,8 +445,18 @@ class MultiheadAttention(nn.Module):
             if model_choice == 'BET':
                 attn_output = attn.contiguous().view(tgt_len, bsz*self.num_heads, self.head_dim)
                 # print(q.size(),attn_output.size())
-                cat = torch.cat([q, attn_output.transpose(0,1)], dim = 2) # N S 2E
-                high = self.f(cat).squeeze() # N S (1)
+                if incremental_state is not None and saved_state is not None:
+                    if "prev_attn_output" in saved_state:
+                        _prev_ato = saved_state["prev_attn_output"]
+                        assert _prev_ato is not None
+                        prev_ato = _prev_ato.view(-1, bsz*self.num_heads, self.head_dim)
+                        attn_output = torch.cat([prev_ato, attn_output], dim=0)
+                        saved_state["prev_attn_output"] = attn_output
+                        incremental_state = self._set_input_buffer(incremental_state, saved_state)
+
+                cat = torch.cat([k, attn_output.transpose(0,1)], dim = 2) # N S 2E
+                high = self.f(cat).squeeze(2) # N S (1)
+
                 fixed_weight = attn_output_weights_beta * high.unsqueeze(1)
                 # print(fixed_weight)
 
@@ -466,10 +482,10 @@ class MultiheadAttention(nn.Module):
                         fixed_weight += I
                 # print(fixed_weight)
                 fixed_weight = F.softmax(fixed_weight, dim=-1)
-                fixed_weight = F.dropout(fixed_weight, p=dropout_p, training=training)
+                fixed_weight = self.dropout_module(fixed_weight)
 
                 attn_output = torch.bmm(fixed_weight, v)
-                assert list(attn_output.size()) == [bsz * num_heads, tgt_len, head_dim]
+                assert list(attn_output.size()) == [bsz * self.num_heads, tgt_len, self.head_dim]
                 attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
                 attn_output = self.out_proj2(attn_output)
                 attn_output_weights = fixed_weight
