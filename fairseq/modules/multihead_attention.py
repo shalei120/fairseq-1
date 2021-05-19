@@ -85,6 +85,9 @@ class MultiheadAttention(nn.Module):
         self.out_proj = quant_noise(
             nn.Linear(embed_dim, embed_dim, bias=bias), q_noise, qn_block_size
         )
+        self.out_proj2 = quant_noise(
+            nn.Linear(embed_dim, embed_dim, bias=bias), q_noise, qn_block_size
+        )
 
         if add_bias_kv:
             self.bias_k = Parameter(torch.Tensor(1, 1, embed_dim))
@@ -440,7 +443,7 @@ class MultiheadAttention(nn.Module):
                 attn_output = attn.contiguous().view(tgt_len, bsz*self.num_heads, self.head_dim)
                 # print(q.size(),attn_output.size())
                 cat = torch.cat([q, attn_output.transpose(0,1)], dim = 2) # N S 2E
-                high = self.f(cat).squeeze() # N S (1)
+                high = self.f(cat).squeeze(2) # N S (1)
                 fixed_weight = attn_output_weights_beta * high.unsqueeze(1)
                 # print(fixed_weight)
 
@@ -459,17 +462,17 @@ class MultiheadAttention(nn.Module):
                         fixed_weight += add_I.unsqueeze(0)
 
                     else:
-                        I = torch.eye(tgt_len).to('cuda:0')
+                        I = torch.eye(tgt_len)#.to('cuda:0')
                         I[0, 0] = 0
                         I = I.masked_fill_(I == 1, float("-inf"))
                         # print(attn_weights.size(),I.size(), query.size(), encode)
                         fixed_weight += I
                 # print(fixed_weight)
                 fixed_weight = F.softmax(fixed_weight, dim=-1)
-                fixed_weight = F.dropout(fixed_weight, p=dropout_p, training=training)
+                fixed_weight = self.dropout_module(fixed_weight)
 
                 attn_output = torch.bmm(fixed_weight, v)
-                assert list(attn_output.size()) == [bsz * num_heads, tgt_len, head_dim]
+                assert list(attn_output.size()) == [bsz * self.num_heads, tgt_len, self.head_dim]
                 attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
                 attn_output = self.out_proj2(attn_output)
                 attn_output_weights = fixed_weight
