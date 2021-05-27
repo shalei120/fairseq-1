@@ -2,12 +2,14 @@ import os
 
 import argparse
 name2sh = {
-    'deenbet-dec': ['deen_bet_dec', 'de-en-BET-dec'],
-    'deenbet-dec-dm': ['deen_bet_dec-dm','de-en-BET-dec=dm'],
-    'deenbet-enc': ['deen_bet_enc','de-en-BET-enc'],
-    'deenbet-enc-dm': ['deen_bet_enc-dm','de-en-BET-enc=dm'],
-    'deenbet-encdec': ['deen_bet_encdec','de-en-BET-encdec'],
-    'deenbet-encdec-dm': ['deen_bet_encdec-dm','de-en-BET-encdec=dm'],
+    # 'deenbet-dec': ['deen_bet_dec', 'de-en-BET-dec'],
+    # 'deenbet-dec-dm': ['deen_bet_dec-dm','de-en-BET-dec=dm'],
+    # 'deenbet-enc': ['deen_bet_enc','de-en-BET-enc'],
+    # 'deenbet-enc-dm': ['deen_bet_enc-dm','de-en-BET-enc=dm'],
+    # 'deenbet-encdec': ['deen_bet_encdec','de-en-BET-encdec'],
+    # 'deenbet-encdec-dm': ['deen_bet_encdec-dm','de-en-BET-encdec=dm'],
+    # 'endebet-dec': ['ende_bet_dec','en-de-BET-dec'],
+    'endebet-dec-dm': ['ende_bet_dec-dm','en-de-BET-dec=dm'],
 
 }
 
